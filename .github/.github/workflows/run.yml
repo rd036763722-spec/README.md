@@ -1,16 +1,12 @@
-name: Daily News Collector
+name: News to Word Email
 
 on:
   schedule:
-    # ירוץ אוטומטית בכל יום בשעה 08:00 בבוקר (שעון ישראל)
-    - cron: '0 6 * * *'
-  workflow_dispatch: # מאפשר הרצה ידנית בלחיצת כפתור
-
-permissions:
-  contents: write # הרשאה ל-GitHub דרושה כדי לשמור קבצים במאגר
+    - cron: '0 6 * * *' # ירוץ אוטומטית בכל יום
+  workflow_dispatch:
 
 jobs:
-  build-and-save:
+  run-script:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -21,13 +17,14 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Run News Collector
+      - name: Install Dependencies
+        run: |
+          pip install python-docx
+
+      - name: Run Main Script
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
         run: python main.py
 
-      - name: Commit and Push new summary file
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .
-          git commit -m "Auto-generated daily news summary" || exit 0
-          git push
