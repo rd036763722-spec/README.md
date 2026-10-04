@@ -1,9 +1,8 @@
 import os
 import datetime
-import smtplib
 import urllib.request
 import xml.etree.ElementTree as ET
-from email.message import EmailMessage
+import resend
 from docx import Document
 
 def get_news():
@@ -24,7 +23,7 @@ def main():
     today = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     news_items = get_news()
 
-    # יצירת המסמך
+    # יצירת מסמך Word בזיכרון
     doc = Document()
     doc.add_heading(f'סיכום חדשות - {today}', 0)
     for item in news_items:
@@ -33,31 +32,33 @@ def main():
     doc_filename = f"News_Summary_{today}.docx"
     doc.save(doc_filename)
 
-    # שליחת המייל עם הקובץ המצורף
-    sender_email = os.environ.get("EMAIL_USER")
-    sender_password = os.environ.get("EMAIL_PASS")
+    # שליחה דרך Resend
+    api_key = os.environ.get("RESEND_API_KEY")
     recipient_email = os.environ.get("RECIPIENT_EMAIL")
 
-    if sender_email and sender_password and recipient_email:
-        msg = EmailMessage()
-        msg['Subject'] = f"סיכום חדשות יומי - {today}"
-        msg['From'] = sender_email
-        msg['To'] = recipient_email
-        msg.set_content("שלום,\n\nמצורף סיכום החדשות היומי בקובץ Word.\nתוכל לחץ על האייקון של Google Drive בג'ימייל כדי לשמור אותו ישירות לדרייב שלך!")
+    if api_key and recipient_email:
+        resend.api_key = api_key
 
-        with open(doc_filename, 'rb') as f:
-            file_data = f.read()
-            msg.add_attachment(
-                file_data,
-                maintype='application',
-                subtype='vnd.openxmlformats-officedocument.wordprocessingml.document',
-                filename=doc_filename
-            )
+        with open(doc_filename, "rb") as f:
+            file_bytes = list(f.read())
 
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(sender_email, sender_password)
-            smtp.send_message(msg)
-        print("המייל נשלח בהצלחה!")
+        params = {
+            "from": "onboarding@resend.dev",
+            "to": [recipient_email],
+            "subject": f"סיכום חדשות יומי - {today}",
+            "html": "<p>שלום,<br>מצורף קובץ ה-Word עם סיכום החדשות היומי.</p>",
+            "attachments": [
+                {
+                    "filename": doc_filename,
+                    "content": file_bytes,
+                }
+            ]
+        }
+
+        email_response = resend.Emails.send(params)
+        print("המייל נשלח בהצלחה!", email_response)
+    else:
+        print("שגיאה: חסרים משתני סביבה (RESEND_API_KEY / RECIPIENT_EMAIL)")
 
 if __name__ == "__main__":
     main()
