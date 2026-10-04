@@ -1,0 +1,33 @@
+name: Daily News Collector
+
+on:
+  schedule:
+    # ירוץ אוטומטית בכל יום בשעה 08:00 בבוקר (שעון ישראל)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # מאפשר הרצה ידנית בלחיצת כפתור
+
+permissions:
+  contents: write # הרשאה ל-GitHub דרושה כדי לשמור קבצים במאגר
+
+jobs:
+  build-and-save:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run News Collector
+        run: python main.py
+
+      - name: Commit and Push new summary file
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Auto-generated daily news summary" || exit 0
+          git push
