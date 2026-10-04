@@ -1,52 +1,63 @@
-
 import os
 import datetime
+import smtplib
 import urllib.request
 import xml.etree.ElementTree as ET
+from email.message import EmailMessage
+from docx import Document
 
-def fetch_latest_news():
-    # משיכת מבזקים מפיד RSS
-    rss_url = "https://www.maariv.co.il/Rss/RssFeedsMavzakim"
-    req = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
-    
+def get_news():
+    url = "https://www.maariv.co.il/Rss/RssFeedsMavzakim"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    news = []
     try:
-        with urllib.request.urlopen(req) as response:
-            xml_data = response.read()
-            
-        root = ET.fromstring(xml_data)
-        items = root.findall('./channel/item')
-        
-        news_list = []
-        for item in items[:10]:  # 10 המבזקים האחרונים
-            title = item.find('title').text if item.find('title') is not None else ''
-            pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ''
-            news_list.append(f"- **{title}** ({pub_date})")
-            
-        return news_list
+        with urllib.request.urlopen(req) as resp:
+            root = ET.fromstring(resp.read())
+            for item in root.findall('./channel/item')[:10]:
+                title = item.find('title').text if item.find('title') is not None else ''
+                news.append(title)
     except Exception as e:
-        print(f"שגיאה באיסוף החדשות: {e}")
-        return ["לא ניתן היה למשוך מבזקים כעת."]
+        news.append("שגיאה באיסוף המבזקים.")
+    return news
 
 def main():
-    today_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    news = fetch_latest_news()
-    
-    # 1. יצירת תוכן הדו"ח
-    content = f"# 📰 סיכום חדשות יומי - {today_str}\n\n"
-    content += "\n".join(news)
-    
-    # 2. שמירת התוכן לקובץ במאגר
-    filename = f"news_{today_str}.md"
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(content)
-        
-    # 3. הדפסה ל-Summary של GitHub Actions (כדי שתראה את זה יפה ישר במסך)
-    github_step_summary = os.environ.get('GITHUB_STEP_SUMMARY')
-    if github_step_summary:
-        with open(github_step_summary, "a", encoding="utf-8") as f:
-            f.write(content)
+    today = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    news_items = get_news()
 
-    print(f"הסיכום נשמר בהצלחה לקובץ {filename}!")
+    # יצירת המסמך
+    doc = Document()
+    doc.add_heading(f'סיכום חדשות - {today}', 0)
+    for item in news_items:
+        doc.add_paragraph(item, style='List Bullet')
+    
+    doc_filename = f"News_Summary_{today}.docx"
+    doc.save(doc_filename)
+
+    # שליחת המייל עם הקובץ המצורף
+    sender_email = os.environ.get("EMAIL_USER")
+    sender_password = os.environ.get("EMAIL_PASS")
+    recipient_email = os.environ.get("RECIPIENT_EMAIL")
+
+    if sender_email and sender_password and recipient_email:
+        msg = EmailMessage()
+        msg['Subject'] = f"סיכום חדשות יומי - {today}"
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        msg.set_content("שלום,\n\nמצורף סיכום החדשות היומי בקובץ Word.\nתוכל לחץ על האייקון של Google Drive בג'ימייל כדי לשמור אותו ישירות לדרייב שלך!")
+
+        with open(doc_filename, 'rb') as f:
+            file_data = f.read()
+            msg.add_attachment(
+                file_data,
+                maintype='application',
+                subtype='vnd.openxmlformats-officedocument.wordprocessingml.document',
+                filename=doc_filename
+            )
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(sender_email, sender_password)
+            smtp.send_message(msg)
+        print("המייל נשלח בהצלחה!")
 
 if __name__ == "__main__":
     main()
