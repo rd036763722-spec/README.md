@@ -1,37 +1,71 @@
-import random
-import time
+import os
+import json
+import datetime
+import urllib.request
+import xml.etree.ElementTree as ET
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
-def run_simulation():
-    secret_number = random.randint(1, 100)
-    print(f"--- התחלת סימולציה: התוכנה בחרה מספר סודי בין 1 ל-100 ---")
+# 1. איסוף חדשות מפיד RSS
+def fetch_latest_news():
+    rss_url = "https://www.maariv.co.il/Rss/RssFeedsMavzakim"  # דוגמה לפיד מבזקים
+    req = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
     
-    attempts = 0
-    low = 1
-    high = 100
-    
-    start_time = time.time()
-    
-    while True:
-        attempts += 1
-        guess = (low + high) // 2  # חיפוש בינארי
-        print(f"ניסיון {attempts}: המחשב מנחש {guess}")
-        
-        if guess == secret_number:
-            print(f"\nהצלחה! המספר הסודי הוא {secret_number}.")
-            break
-        elif guess < secret_number:
-            print("   -> נמוך מדי, מעלה גבול תחתון.")
-            low = guess + 1
-        else:
-            print("   -> גבוה מדי, מוריד גבול עליון.")
-            high = guess - 1
+    try:
+        with urllib.request.urlopen(req) as response:
+            xml_data = response.read()
             
-        time.sleep(0.5) # השהייה קלה בשביל האפקט ביומן ההרצה
+        root = ET.fromstring(xml_data)
+        items = root.findall('./channel/item')
         
-    duration = round(time.time() - start_time, 2)
-    print(f"\n--- סיכום הרצה ---")
-    print(f"מספר ניסיונות כולל: {attempts}")
-    print(f"זמן ביצוע: {duration} שניות")
+        news_list = []
+        for item in items[:10]: # 10 המבזקים האחרונים
+            title = item.find('title').text if item.find('title') is not None else ''
+            pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ''
+            news_list.append(f"• {title} ({pub_date})")
+            
+        return news_list
+    except Exception as e:
+        print(f"שגיאה באיסוף החדשות: {e}")
+        return ["לא ניתן היה למשוך מבזקים כעת."]
+
+# 2. יצירת קובץ הסיכום והעלאתו ל-Drive
+def create_and_upload_summary():
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = f"news_summary_{today_str}.txt"
+    
+    news = fetch_latest_news()
+    
+    # כתיבת התוכן לקובץ מקומי
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(f"=== סיכום חדשות יומי - {today_str} ===\n\n")
+        for item in news:
+            f.write(f"{item}\n\n")
+            
+    print(f"הקובץ {filename} נוצר בהצלחה. מעלה ל-Google Drive...")
+
+    # התחברות ל-Google Drive
+    creds_json = os.environ.get("GDRIVE_SERVICE_ACCOUNT")
+    if not creds_json:
+        print("שגיאה: חסר GDRIVE_SERVICE_ACCOUNT ב-Secrets")
+        return
+
+    info = json.loads(creds_json)
+    scopes = ['https://www.googleapis.com/auth/drive.file']
+    creds = Credentials.from_service_account_info(info, scopes=scopes)
+    service = build('drive', 'v3', credentials=creds)
+
+    file_metadata = {'name': filename}
+    media = MediaFileUpload(filename, mimetype='text/plain')
+    
+    uploaded_file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+
+    print(f"הקובץ הועלה בהצלחה ל-Drive! מזהה: {uploaded_file.get('id')}")
 
 if __name__ == "__main__":
-    run_simulation()
+    create_and_upload_summary()
